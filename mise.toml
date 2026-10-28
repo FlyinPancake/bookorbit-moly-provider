@@ -1,0 +1,7 @@
+[tasks]
+dev = "mise watch -r run"
+
+[tasks.run]
+run = "cargo run"
+sources = ["src/**/*.rs", "Cargo.toml"]
+outputs = ["target/debug/bookorbit-moly-provider"]
