@@ -1,0 +1,6 @@
+[workspace]
+# Not on crates.io: read the last released version from git tags (`v{{ version }}`)
+# and only tag and create a GitHub release.
+git_only = true
+# cargo-semver-checks only works on libraries
+semver_check = false
