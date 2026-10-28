@@ -34,6 +34,7 @@ pub struct SeriesEntry {
     /// name of the series
     pub series: String,
     /// index of the book in the series, e.g. 1 for the first book
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<Decimal>,
 }
 
@@ -42,30 +43,52 @@ pub struct SeriesEntry {
 pub struct BookResult {
     pub provider_id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<MediaType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub authors: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub narrators: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Description>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub published_year: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub published_date: Option<chrono::NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub language_code: Option<LanguageCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub isbn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub isbn13: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub isbn10: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<u32>,
     /// Audiobook duration in seconds
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub genres: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub series: Option<Vec<SeriesEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<url::Url>,
     /// cover width in pixels
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_width: Option<u32>,
     /// cover height in pixels
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cover_height: Option<u32>,
     /// rating from 0 to 5
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rating: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rating_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<url::Url>,
 }

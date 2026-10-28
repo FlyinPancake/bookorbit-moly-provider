@@ -184,6 +184,19 @@ mod tests {
     }
 
     #[test]
+    fn missing_fields_are_left_out() {
+        let mut book = book();
+        book.printings.clear();
+        book.series.clear();
+        let json = serde_json::to_value(to_book_result(&book, MediaType::Book, None)).unwrap();
+
+        // the conformance checker rejects `"narrators": null` and the like
+        assert!(json.as_object().unwrap().values().all(|v| !v.is_null()));
+        assert!(json.get("narrators").is_none());
+        assert!(json.get("cover").is_none());
+    }
+
+    #[test]
     fn ids_round_trip() {
         assert_eq!(
             parse_id("frank-herbert-dune#audiobook"),
