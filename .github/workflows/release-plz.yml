@@ -58,7 +58,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/image.yml
+    uses: $/.github/workflows/image.yml
     with:
       push: true
       version: ${{ needs.release.outputs.version }}
