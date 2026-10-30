@@ -1,7 +1,7 @@
 //! The search page and the book page
 
 use color_eyre::eyre::{self, OptionExt};
-use scraper::Html;
+use scraper::{ElementRef, Html};
 
 use super::{
     MolySlug, ScrapedBook, ScrapedSeries,
@@ -10,6 +10,10 @@ use super::{
 };
 
 static_selector!(SEARCH_RESULT, "a.book_selector");
+// "Nincsen találat." when nothing at all matched
+static_selector!(SEARCH_NOTICE, "div.search_area > p");
+// a results section with no hits is its heading followed by "Nincs találat."
+static_selector!(EMPTY_SECTION, "h3 + div.hint");
 static_selector!(TITLE, "h1 > span.item");
 static_selector!(SERIES, "a.action");
 static_selector!(AUTHORS, "div.authors > a");
@@ -29,7 +33,7 @@ static_regex!(PERCENT, r"(\d+)\s*%");
 
 pub(super) fn parse_search_page(body: &str) -> eyre::Result<Vec<MolySlug>> {
     let document = Html::parse_document(body);
-    document
+    let slugs = document
         .select(&SEARCH_RESULT)
         .map(|book| {
             Ok(book
@@ -38,7 +42,25 @@ pub(super) fn parse_search_page(body: &str) -> eyre::Result<Vec<MolySlug>> {
                 .ok_or_eyre("book link not found")?
                 .replace("/konyvek/", ""))
         })
-        .collect()
+        .collect::<eyre::Result<Vec<_>>>()?;
+    // without a "no hits" notice, an empty list means the page layout changed
+    if slugs.is_empty() && !has_no_book_hits(&document) {
+        eyre::bail!("search page has neither book links nor a no-hits notice");
+    }
+    Ok(slugs)
+}
+
+fn has_no_book_hits(document: &Html) -> bool {
+    let text = |el: ElementRef| clean(&el.text().collect::<String>());
+    let nothing_matched = document
+        .select(&SEARCH_NOTICE)
+        .any(|p| text(p).starts_with("Nincsen találat"));
+    let no_books = document.select(&EMPTY_SECTION).any(|hint| {
+        hint.prev_siblings()
+            .find_map(ElementRef::wrap)
+            .is_some_and(|heading| text(heading) == "Könyvek")
+    });
+    nothing_matched || no_books
 }
 
 pub(super) fn clean(s: &str) -> String {
@@ -187,6 +209,7 @@ mod tests {
     use super::*;
 
     const SEARCH_PAGE: &str = include_str!("../../tests/fixtures/search_dune.html");
+    const EMPTY_SEARCH_PAGE: &str = include_str!("../../tests/fixtures/search_empty.html");
     const BOOK_PAGE: &str = include_str!("../../tests/fixtures/book_dune.html");
     const SLUG: &str = "frank-herbert-dune-angol";
 
@@ -202,6 +225,27 @@ mod tests {
         assert!(slugs.contains(&SLUG.to_string()));
         // slugs must be bare, without the /konyvek/ prefix
         assert!(slugs.iter().all(|slug| !slug.contains('/')));
+    }
+
+    #[test]
+    fn search_without_hits_is_empty() {
+        assert!(parse_search_page(EMPTY_SEARCH_PAGE).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_with_no_book_hits_is_empty() {
+        let page = r#"<table><tr><td><h3>Könyvek </h3><div class="hint">Nincs találat.</div></td>
+            <td><h3>Tagok <span class="counter">1</span></h3><div class="user item">x</div></td></tr></table>"#;
+
+        assert!(parse_search_page(page).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_page_without_results_or_notice_is_an_error() {
+        // other sections being empty says nothing about the books section
+        let page = r#"<h3>Alkotók </h3><div class="hint">Nincs találat.</div>"#;
+
+        assert!(parse_search_page(page).is_err());
     }
 
     #[test]
@@ -369,6 +413,6 @@ mod tests {
     #[test]
     fn parse_garbage_html_does_not_panic() {
         assert!(parse_book_page("<html></html>", "whatever".to_string()).is_err());
-        assert!(parse_search_page("<html></html>").unwrap().is_empty());
+        assert!(parse_search_page("<html></html>").is_err());
     }
 }
