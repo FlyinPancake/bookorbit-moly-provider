@@ -28,7 +28,7 @@ pub async fn lookup(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<BookResult>, ApiError> {
-    let (slug, media) = mapping::parse_id(&id).ok_or(ScrapeError::NotFound)?;
+    let (slug, media, isbn) = mapping::parse_id(&id).ok_or(ScrapeError::NotFound)?;
     let book = state.scraper.book(slug).await?;
-    Ok(Json(mapping::to_book_result(&book, media, None)))
+    Ok(Json(mapping::to_book_result(&book, media, isbn.as_deref())))
 }
