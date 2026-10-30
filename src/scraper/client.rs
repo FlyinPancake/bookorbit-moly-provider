@@ -41,9 +41,10 @@ impl MolyScraper {
     pub fn new(min_interval: Duration) -> Self {
         let headers = HeaderMap::from_iter([(
             header::USER_AGENT,
-            HeaderValue::from_static(
-                "Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/81.0",
-            ),
+            HeaderValue::from_static(concat!(
+                "bookorbit-moly-provider/",
+                env!("CARGO_PKG_VERSION")
+            )),
         )]);
         Self {
             // Trust only the bundled Mozilla roots so the binary works without
