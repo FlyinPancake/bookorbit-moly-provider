@@ -129,9 +129,10 @@ impl ProviderInfo {
                 SupportedField::Genres,
                 SupportedField::Narrators,
             ]),
-            book_url_template: Some(BookUrlTemplate(
-                crate::consts::PROVIDER_BOOK_TEMPLATE_URL.to_string(),
-            )),
+            // The app URL-encodes the id into the template, which turns the
+            // `#audiobook` suffix into `%23audiobook` and breaks the link.
+            // Every record carries its own `url`, so no template is needed.
+            book_url_template: None,
             // Moly uses really long IDs for books, so we need to allow for that.
             // The longest ID allowed is 512 characters, so we'll use that as the max length.
             id_max_length: Some(IdMaxLength(512)),
