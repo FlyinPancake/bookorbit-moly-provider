@@ -10,6 +10,10 @@ use crate::scraper::{ScrapedBook, ScrapedPrinting};
 /// It ends up as a URL fragment in the book URL template, so the link still works.
 pub const AUDIOBOOK_SUFFIX: &str = "#audiobook";
 
+/// Appended to a slug, followed by an ISBN-13, to address the edition with that ISBN.
+/// Like the audiobook suffix, it is a URL fragment in the book URL.
+pub const ISBN_SUFFIX: &str = "#isbn=";
+
 /// Parses an ISBN-10 or ISBN-13 into the bare digits of its ISBN-13 form,
 /// so that both forms of the same ISBN compare equal
 fn isbn13(isbn: &str) -> Option<String> {
@@ -20,25 +24,35 @@ fn isbn13(isbn: &str) -> Option<String> {
     Some(isbn13.to_string())
 }
 
-/// Splits a provider ID into the moly.hu slug and the media type it addresses
-pub fn parse_id(id: &str) -> Option<(&str, MediaType)> {
-    let (slug, media) = match id.strip_suffix(AUDIOBOOK_SUFFIX) {
-        Some(slug) => (slug, MediaType::Audiobook),
-        None => (id, MediaType::Book),
+/// Splits a provider ID into the moly.hu slug, the media type and the ISBN-13 it addresses
+pub fn parse_id(id: &str) -> Option<(&str, MediaType, Option<String>)> {
+    let (slug, media, isbn) = if let Some(slug) = id.strip_suffix(AUDIOBOOK_SUFFIX) {
+        (slug, MediaType::Audiobook, None)
+    } else if let Some((slug, isbn)) = id.split_once(ISBN_SUFFIX) {
+        // only the canonical form, so every edition has exactly one ID
+        let isbn = isbn13(isbn).filter(|normalized| normalized == isbn)?;
+        (slug, MediaType::Book, Some(isbn))
+    } else {
+        (id, MediaType::Book, None)
     };
     let valid = !slug.is_empty()
         && slug
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_');
-    valid.then_some((slug, media))
+    valid.then_some((slug, media, isbn))
 }
 
-/// The printing carrying `isbn`, in either ISBN form
-fn printing_by_isbn<'a>(book: &'a ScrapedBook, isbn: &str) -> Option<&'a ScrapedPrinting> {
+/// The printing carrying `isbn`, in either ISBN form, and the ISBN-13 it matched on
+fn printing_by_isbn<'a>(
+    book: &'a ScrapedBook,
+    isbn: &str,
+) -> Option<(&'a ScrapedPrinting, String)> {
     let wanted = isbn13(isbn)?;
-    book.printings
+    let printing = book
+        .printings
         .iter()
-        .find(|p| p.isbn.as_deref().and_then(isbn13).as_ref() == Some(&wanted))
+        .find(|p| p.isbn.as_deref().and_then(isbn13).as_ref() == Some(&wanted))?;
+    Some((printing, wanted))
 }
 
 fn pick_printing(book: &ScrapedBook, media: MediaType) -> Option<&ScrapedPrinting> {
@@ -60,14 +74,17 @@ fn non_empty<T>(v: Vec<T>) -> Option<Vec<T>> {
 
 /// Builds the record for `book`, preferring the edition that matches `media` and `isbn`.
 pub fn to_book_result(book: &ScrapedBook, media: MediaType, isbn: Option<&str>) -> BookResult {
-    let printing = isbn
-        .and_then(|isbn| printing_by_isbn(book, isbn))
-        .or_else(|| pick_printing(book, media));
+    let isbn_match = isbn.and_then(|isbn| printing_by_isbn(book, isbn));
+    let printing = match &isbn_match {
+        Some((printing, _)) => Some(*printing),
+        None => pick_printing(book, media),
+    };
     let is_audiobook = printing.is_some_and(|p| p.is_audiobook);
-    let provider_id = if is_audiobook {
-        format!("{}{AUDIOBOOK_SUFFIX}", book.slug)
-    } else {
-        book.slug.clone()
+    // an ISBN match keeps its ISBN in the ID, so a lookup returns the same edition
+    let provider_id = match &isbn_match {
+        Some((_, isbn)) => format!("{}{ISBN_SUFFIX}{isbn}", book.slug),
+        None if is_audiobook => format!("{}{AUDIOBOOK_SUFFIX}", book.slug),
+        None => book.slug.clone(),
     };
     let url = crate::consts::PROVIDER_BOOK_TEMPLATE_URL.replace("{id}", &provider_id);
 
@@ -187,6 +204,7 @@ mod tests {
         let result = to_book_result(&book(), MediaType::Book, Some("9780441013593"));
 
         assert_eq!(result.isbn13.as_deref(), Some("9780441013593"));
+        assert_eq!(result.provider_id, "frank-herbert-dune#isbn=9780441013593");
     }
 
     #[test]
@@ -194,6 +212,7 @@ mod tests {
         let result = to_book_result(&book(), MediaType::Book, Some("0-441-01359-7"));
 
         assert_eq!(result.isbn13.as_deref(), Some("9780441013593"));
+        assert_eq!(result.provider_id, "frank-herbert-dune#isbn=9780441013593");
     }
 
     #[test]
@@ -203,6 +222,18 @@ mod tests {
         let result = to_book_result(&book, MediaType::Book, Some("9780441013593"));
 
         assert_eq!(result.isbn10.as_deref(), Some("0441013597"));
+        assert_eq!(result.provider_id, "frank-herbert-dune#isbn=9780441013593");
+    }
+
+    #[test]
+    fn lookup_by_isbn_id_returns_the_same_edition() {
+        let found = to_book_result(&book(), MediaType::Book, Some("9780441013593"));
+        let (slug, media, isbn) = parse_id(&found.provider_id).unwrap();
+        let looked_up = to_book_result(&book(), media, isbn.as_deref());
+
+        assert_eq!(slug, "frank-herbert-dune");
+        assert_eq!(looked_up.provider_id, found.provider_id);
+        assert_eq!(looked_up.isbn13, found.isbn13);
     }
 
     #[test]
@@ -240,12 +271,24 @@ mod tests {
     fn ids_round_trip() {
         assert_eq!(
             parse_id("frank-herbert-dune#audiobook"),
-            Some(("frank-herbert-dune", MediaType::Audiobook))
+            Some(("frank-herbert-dune", MediaType::Audiobook, None))
         );
         assert_eq!(
             parse_id("frank-herbert-dune"),
-            Some(("frank-herbert-dune", MediaType::Book))
+            Some(("frank-herbert-dune", MediaType::Book, None))
         );
+        assert_eq!(
+            parse_id("frank-herbert-dune#isbn=9780441013593"),
+            Some((
+                "frank-herbert-dune",
+                MediaType::Book,
+                Some("9780441013593".to_string())
+            ))
+        );
+        // only the canonical ISBN-13 form is an ID
+        assert_eq!(parse_id("frank-herbert-dune#isbn=0441013597"), None);
+        assert_eq!(parse_id("frank-herbert-dune#isbn=9780441013590"), None);
+        assert_eq!(parse_id("#isbn=9780441013593"), None);
         assert_eq!(parse_id("../etc"), None);
         assert_eq!(parse_id(""), None);
     }
