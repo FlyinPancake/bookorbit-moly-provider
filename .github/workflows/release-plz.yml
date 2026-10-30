@@ -46,10 +46,46 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
+        id: release-plz
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      # Points the README's image tag at the new version. The commit goes through the GraphQL API
+      # so GitHub signs it, and uses GITHUB_TOKEN so its author is a bot: release-plz closes a
+      # release PR that has commits from anyone else instead of updating it.
+      - name: Update image tag in README
+        if: steps.release-plz.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.release-plz.outputs.pr }}
+        run: |
+          branch=$(jq -r .head_branch <<< "$PR")
+          version=$(jq -r '.releases[0].version' <<< "$PR")
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha)
+          gh api "repos/$GITHUB_REPOSITORY/contents/README.md?ref=$head" \
+            -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/README.old"
+          sed -E "s|(ghcr\.io/flyinpancake/bookorbit-moly-provider:)[0-9][^[:space:]]*|\1$version|" \
+            "$RUNNER_TEMP/README.old" > "$RUNNER_TEMP/README.md"
+          if cmp -s "$RUNNER_TEMP/README.old" "$RUNNER_TEMP/README.md"; then
+            echo "README already uses $version"
+            exit 0
+          fi
+          jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg branch "$branch" \
+            --arg head "$head" \
+            --arg headline "docs(readme): use image tag $version" \
+            --arg contents "$(base64 -w0 "$RUNNER_TEMP/README.md")" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {
+                branch: {repositoryNameWithOwner: $repo, branchName: $branch},
+                expectedHeadOid: $head,
+                message: {headline: $headline},
+                fileChanges: {additions: [{path: "README.md", contents: $contents}]}
+              }}
+            }' | gh api graphql --input -
 
   # Built here rather than on the tag: a tag pushed with GITHUB_TOKEN starts no workflows.
   image:
