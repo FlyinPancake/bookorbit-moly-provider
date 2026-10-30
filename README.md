@@ -33,7 +33,7 @@ An audiobook edition gets the id `<slug>#audiobook`, so a later lookup by id ret
 ```yaml
 services:
   moly-provider:
-    image: ghcr.io/flyinpancake/bookorbit-moly-provider:0.0.1
+    image: ghcr.io/flyinpancake/bookorbit-moly-provider:0.0.3
     restart: unless-stopped
     environment:
       AUTH_TOKEN: change-me
